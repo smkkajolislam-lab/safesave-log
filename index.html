@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Safe Save Sahittyo — Transparency Log</title>
+<style>
+  :root { --bg:#fbf5ea; --fg:#1f1b2e; --card:#f3e9da; --pri:#2e4a9a; --ok:#1b6b3a; --bad:#b3261e; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#15131f; --fg:#e8e3f0; --card:#26223a; --pri:#a9bcff; --ok:#7fd49b; --bad:#ff8a80; } }
+  body { margin:0; padding:20px; background:var(--bg); color:var(--fg); font-family:system-ui,sans-serif; line-height:1.6; }
+  main { max-width:760px; margin:auto; }
+  h1 { font-size:1.4rem; color:var(--pri); } .card { background:var(--card); border-radius:14px; padding:14px; margin:12px 0; }
+  input { width:100%; box-sizing:border-box; padding:10px; border-radius:10px; border:1px solid #888; font-family:monospace; background:transparent; color:inherit; }
+  button { margin:8px 8px 0 0; padding:10px 16px; border:0; border-radius:20px; background:var(--pri); color:#fff; font-size:1rem; }
+  .ok { color:var(--ok); font-weight:700; } .bad { color:var(--bad); font-weight:700; } code { word-break:break-all; font-size:.85rem; }
+</style>
+</head>
+<body><main>
+<h1>Safe Save Sahittyo — স্বচ্ছতা লগ (Transparency Log)</h1>
+<p>এই লগে শুধু লেখার <b>SHA-256 হ্যাশ ও সময়</b> আছে। লেখক-পরিচয় বা লেখা নেই। লগ শুধু যোগ করা যায় (append-only), এবং প্রতিটি চেকপয়েন্টে স্বাধীন RFC 3161 টাইমস্ট্যাম্প আছে। এই পাতা আপনার ব্রাউজারেই সব হিসাব করে।</p>
+<div class="card">
+  <label for="h">লেখার SHA-256 হ্যাশ (৬৪ অক্ষর)</label>
+  <input id="h" placeholder="যেমন: e3b0c442…" autocomplete="off">
+  <button id="find">লগে খুঁজুন</button>
+  <button id="audit">পুরো লগ অডিট করুন</button>
+</div>
+<div id="out" class="card" style="display:none"></div>
+<div class="card"><b>অ্যাপ ছাড়া যাচাই:</b><br>
+<code>python3 tools/verify.py --base https://raw.githubusercontent.com/OWNER/REPO/main</code><br>
+চেকপয়েন্টের সময়-প্রমাণ: <code>openssl ts -verify -in checkpoints/latest.tsr -data checkpoints/latest.json -CApath /etc/ssl/certs -untrusted chain.pem</code><br>
+চেকপয়েন্টের Sigstore স্বাক্ষর: <code>gh attestation verify checkpoints/latest.json --repo OWNER/REPO</code></div>
+<script src="merkle.js"></script>
+<script>
+const out = document.getElementById('out');
+function show(html) { out.style.display = 'block'; out.innerHTML = html; }
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function load() {
+  const [e, c] = await Promise.all([fetch('log/entries.jsonl', {cache:'no-store'}), fetch('checkpoints/latest.json', {cache:'no-store'})]);
+  if (!e.ok || !c.ok) throw new Error('লগ ফাইল পাওয়া যায়নি');
+  const lines = (await e.text()).split('\n').filter(Boolean);
+  const ckpt = JSON.parse(await c.text());
+  const leaves = []; for (const l of lines) leaves.push(await leafHash(l));
+  const root = toHex(await mth(leaves, 0, ckpt.size));
+  return { lines, ckpt, root };
+}
+document.getElementById('find').onclick = async () => {
+  const h = document.getElementById('h').value.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(h)) return show('<span class="bad">৬৪ অক্ষরের হেক্স হ্যাশ দিন।</span>');
+  show('হিসাব চলছে…');
+  try {
+    const { lines, ckpt, root } = await load();
+    const rootOk = root === ckpt.root;
+    const hits = []; lines.forEach((l, i) => { const o = JSON.parse(l); if (o.hash === h && i < ckpt.size) hits.push([i, o]); });
+    let html = rootOk ? '<div class="ok">✓ লগ ও চেকপয়েন্ট মিলেছে (Merkle root পুনর্গণনা)</div>' : '<div class="bad">⚠ লগ ও চেকপয়েন্ট মিলছে না!</div>';
+    html += `<div>চেকপয়েন্ট: আকার ${ckpt.size}, সময় ${esc(ckpt.time)}<br><code>root ${esc(ckpt.root)}</code></div>`;
+    if (!hits.length) html += '<p class="bad">এই হ্যাশ এখনো লগে নেই (লগ প্রতি ঘণ্টায় হালনাগাদ হয়)।</p>';
+    for (const [i, o] of hits) html += `<p class="ok">✓ লগে আছে — অবস্থান #${i} / ${ckpt.size}</p><div>এন্ট্রি আইডি: ${esc(o.id)}<br>সার্ভার-সময়: ${esc(o.savedAt)}<br>স্বাধীন TSA সময়: ${esc(o.tsaGenTime)}<br>TSA যাচাই (CI): ${o.tsaVerified ? 'হ্যাঁ' : 'এই মেশিনের CA তালিকায় নেই — OpenSSL দিয়ে যাচাই করুন'}<br>টোকেনের SHA-256: <code>${esc(o.tokenSha256)}</code></div>`;
+    show(html);
+  } catch (err) { show('<span class="bad">' + esc(err.message) + '</span>'); }
+};
+document.getElementById('audit').onclick = async () => {
+  show('অডিট চলছে…');
+  try {
+    const { lines, ckpt, root } = await load();
+    show(root === ckpt.root
+      ? `<span class="ok">✓ ${lines.length} এন্ট্রি; প্রথম ${ckpt.size}টির root চেকপয়েন্টের সাথে মিলেছে।</span>`
+      : '<span class="bad">⚠ মিলছে না — লগ বদলানো হয়ে থাকতে পারে!</span>');
+  } catch (err) { show('<span class="bad">' + esc(err.message) + '</span>'); }
+};
+</script>
+</main></body></html>
