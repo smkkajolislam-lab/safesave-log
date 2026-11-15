@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Safe Save Sahittyo – অ্যাডমিন</title>
+<style>
+  :root { --bg:#f6f7fb; --card:#ffffff; --ink:#1b1d29; --muted:#667085; --line:#e3e6ef; --pri:#3d5afe; --ok:#1a7f37; --bad:#c62828; --warn:#b45309; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12141c; --card:#1c1f2b; --ink:#eceef6; --muted:#9aa3b8; --line:#2c3040; --pri:#8c9eff; --ok:#56d364; --bad:#ff8a80; --warn:#fbbf24; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, "Noto Sans Bengali", sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:14px 16px; display:flex; align-items:center; gap:10px; border-bottom:1px solid var(--line); background:var(--card); position:sticky; top:0; z-index:5; }
+  header h1 { font-size:17px; margin:0; flex:1; }
+  main { padding:12px; max-width:760px; margin:0 auto; }
+  .tabs { display:flex; gap:6px; margin:6px 0 12px; flex-wrap:wrap; }
+  .tab { padding:8px 12px; border-radius:20px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; font-size:14px; }
+  .tab.on { background:var(--pri); color:#fff; border-color:var(--pri); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .muted { color:var(--muted); font-size:13px; }
+  .big { font-size:17px; font-weight:700; }
+  .kv { margin:3px 0; font-size:14px; word-break:break-all; }
+  .kv b { color:var(--muted); font-weight:600; }
+  button { font:inherit; padding:9px 14px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; }
+  button.pri { background:var(--pri); color:#fff; border-color:var(--pri); }
+  button.ok { background:var(--ok); color:#fff; border-color:var(--ok); }
+  button.bad { background:var(--bad); color:#fff; border-color:var(--bad); }
+  button:disabled { opacity:.5; cursor:default; }
+  input { font:inherit; padding:9px 10px; border-radius:10px; border:1px solid var(--line); background:var(--bg); color:var(--ink); width:100%; }
+  img.shot { max-width:100%; border-radius:10px; border:1px solid var(--line); margin-top:8px; cursor:zoom-in; }
+  img.shot.zoom { max-width:none; width:900px; cursor:zoom-out; }
+  .shotbox { overflow:auto; }
+  .late { color:var(--bad); font-weight:700; }
+  .tag { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; border:1px solid var(--line); }
+  .tag.a { color:var(--ok); } .tag.r { color:var(--bad); } .tag.p { color:var(--warn); }
+  .msg { padding:10px 12px; border-radius:10px; margin:8px 0; background:var(--card); border:1px solid var(--line); }
+</style>
+</head>
+<body>
+<header><h1>Safe Save Sahittyo – অ্যাডমিন</h1><span id="who" class="muted"></span><button id="out" style="display:none">লগআউট</button></header>
+<main id="app"></main>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+/* ============ এই অংশে Firebase-এর ওয়েব কনফিগ বসবে (Project settings → Your apps → Web app) ============ */
+const firebaseConfig = {
+  apiKey: "AIzaSyDMhl0y75-54qzlo2cbOhPxovPvs5rlA4E",
+  authDomain: "safesaveshaittyobysk.firebaseapp.com",
+  projectId: "safesaveshaittyobysk",
+  appId: "1:32415748067:web:a7a0bfd0db2fd9a7111ad6"
+};
+const ADMIN_EMAIL = "shopnokolom@gmail.com";
+/* ================================================================================================ */
+
+const app = document.getElementById('app');
+const whoEl = document.getElementById('who');
+const outBtn = document.getElementById('out');
+const DAY = 86400000;
+
+function h(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const k in (attrs || {})) {
+    if (k === 'class') e.className = attrs[k];
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), attrs[k]);
+    else e.setAttribute(k, attrs[k]);
+  }
+  kids.flat().forEach(c => { if (c !== null && c !== undefined && c !== false) e.append(c instanceof Node ? c : document.createTextNode(String(c))); });
+  return e;
+}
+const fmt = ms => ms ? new Date(ms).toLocaleString('bn-BD', { timeZone: 'Asia/Dhaka', dateStyle: 'medium', timeStyle: 'short' }) : '—';
+const methodName = { bkash: 'বিকাশ', nagad: 'নগদ', rocket: 'রকেট', upay: 'উপায়' };
+const planName = { monthly: 'মাসিক', yearly: 'বাৎসরিক' };
+const tsMs = t => (t && t.toMillis) ? t.toMillis() : 0;
+
+if (firebaseConfig.apiKey.startsWith('PASTE')) {
+  app.append(h('div', { class: 'card' },
+    h('div', { class: 'big' }, 'কনফিগ বসানো বাকি'),
+    h('p', null, 'এই ফাইলের শুরুর দিকে firebaseConfig-এর apiKey ও appId এখনো বসানো হয়নি।')));
+} else {
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db = firebase.firestore();
+  const FV = firebase.firestore.FieldValue;
+  const TS = firebase.firestore.Timestamp;
+  let tab = 'pending';
+  let busy = false;
+
+  outBtn.onclick = () => auth.signOut();
+  auth.onAuthStateChanged(user => {
+    app.replaceChildren();
+    whoEl.textContent = user ? user.email : '';
+    outBtn.style.display = user ? '' : 'none';
+    if (!user) {
+      app.append(h('div', { class: 'card' },
+        h('div', { class: 'big' }, 'অ্যাডমিন লগইন'),
+        h('p', { class: 'muted' }, 'শুধু অ্যাডমিন ইমেইল দিয়ে ঢোকা যাবে।'),
+        h('button', { class: 'pri', onclick: () => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(e => alert('লগইন হয়নি: ' + e.message)) }, 'Google দিয়ে লগইন')));
+      return;
+    }
+    if (user.email !== ADMIN_EMAIL || !user.emailVerified) {
+      app.append(h('div', { class: 'card' }, h('div', { class: 'big' }, 'অনুমতি নেই'),
+        h('p', { class: 'muted' }, 'এই অ্যাকাউন্ট অ্যাডমিন নয়। লগআউট করে সঠিক ইমেইল দিয়ে ঢুকুন।')));
+      return;
+    }
+    show();
+  });
+
+  function setTab(t) { tab = t; show(); }
+
+  function tabsBar(pendingCount) {
+    const mk = (k, label) => h('button', { class: 'tab' + (tab === k ? ' on' : ''), onclick: () => setTab(k) }, label);
+    return h('div', { class: 'tabs' },
+      mk('pending', 'অপেক্ষমাণ' + (pendingCount !== null ? ' (' + pendingCount + ')' : '')),
+      mk('decided', 'সিদ্ধান্ত হয়েছে'), mk('premium', 'প্রিমিয়াম তালিকা'), mk('manual', 'হাতে দিন'));
+  }
+
+  async function show() {
+    app.replaceChildren(h('div', { class: 'muted' }, 'লোড হচ্ছে…'));
+    try {
+      if (tab === 'pending' || tab === 'decided') {
+        const snap = await db.collection('premiumRequests').orderBy('createdAt', 'desc').limit(100).get();
+        const all = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+        const pending = all.filter(r => r.status === 'pending');
+        const list = tab === 'pending' ? pending.slice().reverse() : all.filter(r => r.status !== 'pending');
+        const box = h('div', null, tabsBar(pending.length),
+          h('button', { onclick: show }, '🔄 রিফ্রেশ'));
+        if (!list.length) box.append(h('div', { class: 'msg' }, 'কিছু নেই।'));
+        for (const r of list) box.append(await requestCard(r));
+        app.replaceChildren(box);
+      } else if (tab === 'premium') {
+        const snap = await db.collection('premium').get();
+        const rows = snap.docs.map(d => ({ uid: d.id, until: tsMs(d.data().until) })).sort((a, b) => b.until - a.until);
+        const box = h('div', null, tabsBar(null));
+        if (!rows.length) box.append(h('div', { class: 'msg' }, 'এখনো কেউ প্রিমিয়াম নয়।'));
+        rows.forEach(x => box.append(h('div', { class: 'card' },
+          h('div', { class: 'kv' }, h('b', null, 'UID: '), x.uid),
+          h('div', { class: 'kv' }, h('b', null, 'মেয়াদ: '), fmt(x.until), ' ',
+            h('span', { class: 'tag ' + (x.until > Date.now() ? 'a' : 'r') }, x.until > Date.now() ? 'সক্রিয়' : 'শেষ')))));
+        app.replaceChildren(box);
+      } else {
+        app.replaceChildren(manualForm());
+      }
+    } catch (e) {
+      app.replaceChildren(h('div', { class: 'card' }, h('div', { class: 'big' }, 'লোড হয়নি'), h('p', null, e.message)));
+    }
+  }
+
+  async function requestCard(r) {
+    const created = tsMs(r.createdAt);
+    const hours = created ? (Date.now() - created) / 3600000 : 0;
+    let curUntil = 0;
+    try { const p = await db.collection('premium').doc(r.ownerId).get(); curUntil = p.exists ? tsMs(p.data().until) : 0; } catch (e) {}
+    const card = h('div', { class: 'card' });
+    card.append(
+      h('div', { class: 'row' }, h('span', { class: 'big' }, (planName[r.plan] || r.plan) + ' • ' + r.amount + '৳'),
+        h('span', { class: 'tag ' + (r.status === 'approved' ? 'a' : r.status === 'rejected' ? 'r' : 'p') },
+          r.status === 'approved' ? 'অনুমোদিত' : r.status === 'rejected' ? 'বাতিল' : 'অপেক্ষমাণ')),
+      h('div', { class: 'kv' }, h('b', null, 'নাম: '), r.ownerName || '—'),
+      h('div', { class: 'kv' }, h('b', null, 'ইমেইল: '), r.ownerEmail || '—'),
+      h('div', { class: 'kv' }, h('b', null, 'মাধ্যম: '), methodName[r.method] || r.method),
+      h('div', { class: 'kv' }, h('b', null, 'প্রেরকের নম্বর: '), r.senderNumber || '—'),
+      h('div', { class: 'kv' }, h('b', null, 'TrxID: '), r.trxId || '(দেননি)'),
+      h('div', { class: 'kv' }, h('b', null, 'জমা: '), fmt(created), r.status === 'pending' ? h('span', { class: hours > 4 ? 'late' : 'muted' }, '  (' + Math.floor(hours) + ' ঘণ্টা আগে)') : ''),
+      h('div', { class: 'kv' }, h('b', null, 'বর্তমান মেয়াদ: '), curUntil > Date.now() ? fmt(curUntil) : 'প্রিমিয়াম নেই'),
+      h('div', { class: 'kv muted' }, 'UID: ' + r.ownerId));
+    if (r.status !== 'pending') {
+      card.append(h('div', { class: 'kv' }, h('b', null, 'সিদ্ধান্ত: '), fmt(tsMs(r.decidedAt))));
+      if (r.adminNote) card.append(h('div', { class: 'kv' }, h('b', null, 'মন্তব্য: '), r.adminNote));
+      return card;
+    }
+    if (r.screenshot && /^[A-Za-z0-9+\/=]+$/.test(r.screenshot)) {
+      const img = h('img', { class: 'shot', alt: 'স্ক্রিনশট', src: 'data:image/jpeg;base64,' + r.screenshot });
+      img.onclick = () => img.classList.toggle('zoom');
+      card.append(h('div', { class: 'shotbox' }, img));
+    }
+    const days = r.plan === 'yearly' ? 365 : 30;
+    const newUntil = Math.max(Date.now(), curUntil) + days * DAY;
+    card.append(h('div', { class: 'muted', style: 'margin-top:8px' }, 'অনুমোদন করলে নতুন মেয়াদ: ' + fmt(newUntil)));
+    const ok = h('button', { class: 'ok', onclick: () => decide(r, true, ok, no) }, '✅ অনুমোদন');
+    const no = h('button', { class: 'bad', onclick: () => decide(r, false, ok, no) }, '❌ বাতিল');
+    card.append(h('div', { class: 'row', style: 'margin-top:10px' }, ok, no));
+    return card;
+  }
+
+  async function decide(r, approve, okBtn, noBtn) {
+    if (busy) return;
+    let note = '';
+    if (approve) {
+      if (!confirm('টাকা পাওয়া নিশ্চিত? ' + (planName[r.plan] || r.plan) + ' প্রিমিয়াম চালু হবে।')) return;
+    } else {
+      const reason = prompt('বাতিলের কারণ লিখুন (ব্যবহারকারী দেখতে পাবে):');
+      if (reason === null) return;
+      note = reason.trim() || 'পেমেন্ট যাচাই করা যায়নি';
+    }
+    busy = true; okBtn.disabled = true; noBtn.disabled = true;
+    try {
+      const reqRef = db.collection('premiumRequests').doc(r.id);
+      const premRef = db.collection('premium').doc(r.ownerId);
+      const days = r.plan === 'yearly' ? 365 : 30;
+      await db.runTransaction(async tx => {
+        const rs = await tx.get(reqRef);
+        if (!rs.exists || rs.data().status !== 'pending') throw new Error('এই অনুরোধ আগেই নিষ্পত্তি হয়েছে');
+        if (approve) {
+          const ps = await tx.get(premRef);
+          const cur = ps.exists ? tsMs(ps.data().until) : 0;
+          const until = Math.max(Date.now(), cur) + days * DAY;
+          tx.set(premRef, { until: TS.fromMillis(until), updatedAt: FV.serverTimestamp(), lastRequestId: r.id }, { merge: true });
+          tx.update(reqRef, { status: 'approved', decidedAt: FV.serverTimestamp(), approvedUntil: TS.fromMillis(until), adminNote: '', screenshot: FV.delete() });
+        } else {
+          tx.update(reqRef, { status: 'rejected', decidedAt: FV.serverTimestamp(), adminNote: note, screenshot: FV.delete() });
+        }
+      });
+      if (!approve && r.trxId) {
+        // let the person fix a wrong TrxID and submit again
+        try { await db.collection('trxIds').doc(r.method + '_' + r.trxId).delete(); } catch (e) {}
+      }
+      busy = false;
+      show();
+    } catch (e) {
+      busy = false; okBtn.disabled = false; noBtn.disabled = false;
+      alert('হয়নি: ' + e.message);
+    }
+  }
+
+  function manualForm() {
+    const uid = h('input', { placeholder: 'ব্যবহারকারীর UID (অনুরোধ কার্ডে লেখা আছে)' });
+    const days = h('input', { type: 'number', placeholder: 'কত দিন যোগ হবে (যেমন 30)', value: '30' });
+    const res = h('div', { class: 'muted' });
+    const go = h('button', { class: 'pri', onclick: async () => {
+      const u = uid.value.trim(); const d = parseInt(days.value, 10);
+      if (!u || !(d > 0 && d <= 3650)) { res.textContent = 'UID আর দিন ঠিক করে দিন।'; return; }
+      if (!confirm(u + ' কে ' + d + ' দিন প্রিমিয়াম দেবেন?')) return;
+      go.disabled = true;
+      try {
+        const ref = db.collection('premium').doc(u);
+        let until = 0;
+        await db.runTransaction(async tx => {
+          const ps = await tx.get(ref);
+          const cur = ps.exists ? tsMs(ps.data().until) : 0;
+          until = Math.max(Date.now(), cur) + d * DAY;
+          tx.set(ref, { until: TS.fromMillis(until), updatedAt: FV.serverTimestamp(), lastRequestId: 'manual' }, { merge: true });
+        });
+        res.textContent = 'হয়েছে। নতুন মেয়াদ: ' + fmt(until);
+      } catch (e) { res.textContent = 'হয়নি: ' + e.message; }
+      go.disabled = false;
+    } }, 'প্রিমিয়াম দিন');
+    return h('div', null, tabsBar(null), h('div', { class: 'card' },
+      h('div', { class: 'big' }, 'হাতে প্রিমিয়াম দিন'),
+      h('p', { class: 'muted' }, 'ফর্ম ছাড়া কাউকে (যেমন হোয়াটসঅ্যাপে পেমেন্ট করলে) মেয়াদ দিতে।'),
+      uid, h('div', { style: 'height:8px' }), days, h('div', { style: 'height:10px' }), go, res));
+  }
+}
+</script>
+</body>
+</html>
